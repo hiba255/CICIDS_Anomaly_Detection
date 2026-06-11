@@ -1,0 +1,30 @@
+# Data files (too large for GitHub)
+data/*.csv
+data/*.pkl
+data/*.zip
+
+# Models (will be regenerated)
+models/*.pkl
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+notebooks/.ipynb_checkpoints/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment
+.env
+*.env
+
+# VS Code
+.vscode/
+
+# Anaconda
+*.conda
+
+# OS
+.DS_Store
+Thumbs.db
