@@ -30,4 +30,4 @@ __pycache__/
 Thumbs.db
 # MLflow
 mlruns/
-mlartifacts/
+mlartifacts/".env" 

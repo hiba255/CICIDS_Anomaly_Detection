@@ -1,11 +1,15 @@
 from datetime import datetime, timedelta
-from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi import Depends, HTTPException
+from fastapi.security import OAuth2PasswordBearer
 import jwt
 from passlib.context import CryptContext
+from dotenv import load_dotenv
+import os
+
+load_dotenv()
 
 # Config
-SECRET_KEY = "cicids2017-secret-key-change-in-production"
+SECRET_KEY = os.getenv("SECRET_KEY", "fallback-secret-key")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
@@ -13,11 +17,11 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 30
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
-# Fake users database
+# Users database from env
 USERS_DB = {
-    "cicids": {
-        "username": "cicids",
-        "hashed_password": pwd_context.hash("cicids25*"),
+    os.getenv("APP_USERNAME"): {
+        "username": os.getenv("APP_USERNAME"),
+        "hashed_password": pwd_context.hash(os.getenv("APP_PASSWORD")),
         "role": "admin"
     }
 }
