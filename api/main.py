@@ -4,11 +4,16 @@ from pydantic import BaseModel
 import sys
 import pandas as pd
 from pathlib import Path
+from datetime import datetime
 
 sys.path.append(str(Path(__file__).parent.parent))
 
 from utils.predictor import predict
 from api.auth import create_access_token, get_current_user, verify_password, USERS_DB
+from api.database import SessionLocal, Prediction, init_db
+
+# Initialize database
+init_db()
 
 app = FastAPI(
     title="CICIDS2017 - Network Attack Detection API",
@@ -57,4 +62,44 @@ def predict_endpoint(
     df = pd.DataFrame(request.data)
     result = predict(df)
     result["requested_by"] = current_user["username"]
+
+    # Save to database
+    db = SessionLocal()
+    for r in result["results"]:
+        prediction = Prediction(
+            timestamp=datetime.utcnow(),
+            username=current_user["username"],
+            attack_type=r["attack_type"],
+            confidence=r["confidence"],
+            is_anomaly=str(r["is_anomaly"]),
+            top_features=r["top_features"]
+        )
+        db.add(prediction)
+    db.commit()
+    db.close()
+
     return result
+
+@app.get("/history")
+def get_history(current_user: dict = Depends(get_current_user)):
+    db = SessionLocal()
+    predictions = db.query(Prediction).order_by(
+        Prediction.timestamp.desc()
+    ).limit(50).all()
+    db.close()
+
+    return {
+        "total": len(predictions),
+        "predictions": [
+            {
+                "id": p.id,
+                "timestamp": p.timestamp,
+                "username": p.username,
+                "attack_type": p.attack_type,
+                "confidence": p.confidence,
+                "is_anomaly": p.is_anomaly,
+                "top_features": p.top_features
+            }
+            for p in predictions
+        ]
+    }
