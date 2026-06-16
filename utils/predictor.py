@@ -8,7 +8,7 @@ from pathlib import Path
 # Chemin absolu vers les modèles
 BASE_DIR = Path(__file__).parent.parent
 
-model = joblib.load(BASE_DIR / 'models/xgboost.pkl')
+model = joblib.load(BASE_DIR / 'models/best_model.pkl')
 scaler = joblib.load(BASE_DIR / 'models/scaler.pkl')
 le = joblib.load(BASE_DIR / 'models/label_encoder.pkl')
 # SHAP explainer
