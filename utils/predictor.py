@@ -1,50 +1,62 @@
 import joblib
-import pandas as pd
 import numpy as np
-import os
-from xgboost import XGBClassifier
+import pandas as pd
+import shap
 
-# Dynamic path - works anywhere
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+from pathlib import Path
 
-# Load model
-model = XGBClassifier()
-model.load_model(os.path.join(BASE_DIR, 'models/best_model.json'))
+# Chemin absolu vers les modèles
+BASE_DIR = Path(__file__).parent.parent
 
-# Load scaler and label encoder
-scaler = joblib.load(os.path.join(BASE_DIR, 'models/scaler.pkl'))
-label_encoder = joblib.load(os.path.join(BASE_DIR, 'models/label_encoder.pkl'))
+model = joblib.load(BASE_DIR / 'models/xgboost.pkl')
+scaler = joblib.load(BASE_DIR / 'models/scaler.pkl')
+le = joblib.load(BASE_DIR / 'models/label_encoder.pkl')
+# SHAP explainer
+explainer = shap.TreeExplainer(model)
 
-# Load feature names
-df_clean = pd.read_csv(os.path.join(BASE_DIR, 'data/cicids_clean.csv'))
-feature_cols = [col for col in df_clean.columns if col not in ['Attack Type', 'label']]
-
-# Set feature names BEFORE getting importance
-model.get_booster().feature_names = feature_cols
-
-# Get top 3 important features
-importance_dict = model.get_booster().get_score(importance_type='gain')
-importance_df = pd.DataFrame({
-    'feature': list(importance_dict.keys()),
-    'importance': list(importance_dict.values())
-}).sort_values('importance', ascending=False)
-
-TOP3_FEATURES = importance_df.head(3)['feature'].tolist()
-
-def predict(df: pd.DataFrame) -> pd.DataFrame:
+def predict(df: pd.DataFrame):
     """
-    Input: raw (unscaled) DataFrame
-    Output: DataFrame with prediction, confidence and top 3 features
+    Prédit le type d'attaque et retourne les top features SHAP
     """
-    X_scaled = scaler.transform(df)
-    y_pred = model.predict(X_scaled)
-    y_proba = model.predict_proba(X_scaled)
-    y_labels = label_encoder.inverse_transform(y_pred)
-    confidence = np.max(y_proba, axis=1)
-
-    result = pd.DataFrame({
-        'prediction': y_labels,
-        'confidence': confidence.round(4),
-        'top_features': [TOP3_FEATURES] * len(y_labels)
-    })
-    return result
+    # Prétraitement
+    X = scaler.transform(df.values)
+    
+    # Prédiction
+    predictions = model.predict(X)
+    probabilities = model.predict_proba(X)
+    
+    # SHAP values
+    shap_values = explainer.shap_values(X)
+    
+    results = []
+    for i in range(len(predictions)):
+        # Label prédit
+        attack_type = le.inverse_transform([predictions[i]])[0]
+        confidence = float(probabilities[i].max())
+        
+        # Top 3 features SHAP pour cette prédiction
+        class_idx = predictions[i]
+        shap_row = shap_values[i, :, class_idx]
+        top_indices = np.argsort(np.abs(shap_row))[-3:][::-1]
+        
+        top_features = [
+            {
+                "feature": df.columns[j] if hasattr(df, 'columns') else f"feature_{j}",
+                "shap_value": round(float(shap_row[j]), 4)
+            }
+            for j in top_indices
+        ]
+        
+        results.append({
+            "attack_type": attack_type,
+            "confidence": round(confidence, 4),
+            "is_anomaly": attack_type != "Normal Traffic",
+            "top_features": top_features
+        })
+    
+    return {
+        "total": len(results),
+        "anomalies": sum(1 for r in results if r['is_anomaly']),
+        "normal": sum(1 for r in results if not r['is_anomaly']),
+        "results": results
+    }
