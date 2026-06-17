@@ -1,0 +1,44 @@
+# Data files (too large)
+data/
+*.csv
+*.zip
+*.pkl
+# Notebooks (not needed in production)
+notebooks/
+*.ipynb
+.ipynb_checkpoints/
+
+# Git
+.git/
+.gitignore
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info
+
+# MLflow runs
+mlruns/
+
+# Environment
+.env
+*.env
+
+# Large model files (not needed by API)
+models/X_train_bal.pkl
+models/y_train_bal.pkl
+models/decision_tree.pkl
+models/random_forest.pkl
+models/lightgbm.pkl
+
+# VS Code
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Notes
+notes/
