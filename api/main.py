@@ -5,6 +5,7 @@ import sys
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
+from fastapi import Request
 
 sys.path.append(str(Path(__file__).parent.parent))
 
@@ -103,3 +104,46 @@ def get_history(current_user: dict = Depends(get_current_user)):
             for p in predictions
         ]
     }
+@app.post("/predict-live")
+async def predict_live(request: Request):
+    try:
+        body = await request.json()
+        print(f"Received: {body}")
+        
+        columns = body.get("columns", [])
+        data = body.get("data", [[]])
+        
+        if not columns or not data:
+            return {"result": [0]}
+        
+        df = pd.DataFrame(data, columns=columns)
+        
+        for col in df.columns:
+            try:
+                df[col] = pd.to_numeric(df[col])
+            except:
+                pass
+        
+        result = predict(df)
+        
+        # Save to database
+        db = SessionLocal()
+        for r in result["results"]:
+            prediction = Prediction(
+                timestamp=datetime.utcnow(),
+                username="live-detection",
+                attack_type=r["attack_type"],
+                confidence=r["confidence"],
+                is_anomaly=str(r["is_anomaly"]),
+                top_features=r["top_features"]
+            )
+            db.add(prediction)
+        db.commit()
+        db.close()
+        
+        # Return format CICFlowMeter expects
+        return {"result": [0 if not r["is_anomaly"] else 1 for r in result["results"]]}
+        
+    except Exception as e:
+        print(f"Error: {e}")
+        return {"result": [0]}
