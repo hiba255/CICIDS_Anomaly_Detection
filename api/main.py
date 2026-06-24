@@ -1,11 +1,12 @@
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, Request, HTTPException
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel
 import sys
 import pandas as pd
 from pathlib import Path
 from datetime import datetime
-from fastapi import Request
+import redis
+import time
 
 sys.path.append(str(Path(__file__).parent.parent))
 
@@ -16,11 +17,65 @@ from api.database import SessionLocal, Prediction, init_db
 # Initialize database
 init_db()
 
+# Redis connection (service name "redis" from docker-compose)
+redis_client = redis.Redis(host='redis', port=6379, decode_responses=True)
+
 app = FastAPI(
     title="CICIDS2017 - Network Attack Detection API",
     description="Detects network attacks using XGBoost + SHAP explanations",
     version="1.0.0"
 )
+
+
+def track_and_check_port_scan(src_ip: str, dst_port: int, window_seconds: int = 20, threshold: int = 10):
+    """
+    Tracks distinct destination ports contacted by a source IP
+    within a sliding time window. Detects Port Scanning.
+    """
+    key = f"portscan:{src_ip}"
+    now = time.time()
+
+    redis_client.zadd(key, {str(dst_port): now})
+    redis_client.zremrangebyscore(key, 0, now - window_seconds)
+    redis_client.expire(key, window_seconds)
+
+    distinct_ports = redis_client.zcard(key)
+    return distinct_ports >= threshold, distinct_ports
+
+
+def track_and_check_ddos(src_ip: str, window_seconds: int = 5, threshold: int = 50):
+    """
+    Tracks total connection attempts from a source IP in a short window.
+    A very high connection rate indicates a flood-style DDoS attack.
+    """
+    key = f"ddos:{src_ip}"
+    now = time.time()
+
+    redis_client.zadd(key, {f"{now}-{id(now)}": now})
+    redis_client.zremrangebyscore(key, 0, now - window_seconds)
+    redis_client.expire(key, window_seconds)
+
+    connection_count = redis_client.zcard(key)
+    return connection_count >= threshold, connection_count
+
+
+def track_and_check_brute_force(src_ip: str, dst_port: int, window_seconds: int = 15, threshold: int = 5):
+    """
+    Tracks repeated connection attempts from a source IP to the SAME
+    port (e.g. SSH=22, FTP=21) within a window. Repeated short-lived
+    connections to an auth port indicate brute-force login attempts.
+    """
+    key = f"bruteforce:{src_ip}:{dst_port}"
+    now = time.time()
+
+    redis_client.zadd(key, {f"{now}-{id(now)}": now})
+    redis_client.zremrangebyscore(key, 0, now - window_seconds)
+    redis_client.expire(key, window_seconds)
+
+    attempt_count = redis_client.zcard(key)
+    is_auth_port = dst_port in (22, 21, 23, 3389, 445)  # SSH, FTP, Telnet, RDP, SMB
+    return (is_auth_port and attempt_count >= threshold), attempt_count
+
 
 @app.get("/")
 def root():
@@ -30,9 +85,11 @@ def root():
         "version": "1.0.0"
     }
 
+
 @app.get("/health")
 def health():
     return {"status": "healthy"}
+
 
 @app.get("/model-info")
 def model_info():
@@ -43,17 +100,19 @@ def model_info():
         "classes": ["Bots", "Brute Force", "DDoS", "DoS", "Normal Traffic", "Port Scanning", "Web Attacks"]
     }
 
+
 @app.post("/token")
 def login(form_data: OAuth2PasswordRequestForm = Depends()):
     user = USERS_DB.get(form_data.username)
     if not user or not verify_password(form_data.password, user["hashed_password"]):
-        from fastapi import HTTPException
         raise HTTPException(status_code=401, detail="Invalid credentials")
     token = create_access_token({"sub": form_data.username})
     return {"access_token": token, "token_type": "bearer"}
 
+
 class PredictRequest(BaseModel):
     data: list[dict]
+
 
 @app.post("/predict")
 def predict_endpoint(
@@ -64,7 +123,6 @@ def predict_endpoint(
     result = predict(df)
     result["requested_by"] = current_user["username"]
 
-    # Save to database
     db = SessionLocal()
     for r in result["results"]:
         prediction = Prediction(
@@ -80,6 +138,7 @@ def predict_endpoint(
     db.close()
 
     return result
+
 
 @app.get("/history")
 def get_history(current_user: dict = Depends(get_current_user)):
@@ -104,17 +163,29 @@ def get_history(current_user: dict = Depends(get_current_user)):
             for p in predictions
         ]
     }
+
+
 @app.post("/predict-live")
 async def predict_live(request: Request):
     """
-    Receives NFStream flow data and maps it to CICIDS2017 feature names
+    Receives NFStream flow data, maps it to CICIDS2017 feature names,
+    runs XGBoost prediction, AND checks for multi-flow attack patterns
+    (Port Scan, DDoS, Brute Force) using Redis-backed sliding windows.
     """
     data = await request.json()
 
-    # Map NFStream fields -> CICIDS2017 feature names (best-effort mapping)
+    src_ip = data.get("src_ip", "unknown")
+    dst_port = data.get("dst_port", 0)
+
+    # --- Rule-based multi-flow checks ---
+    is_port_scan, distinct_ports = track_and_check_port_scan(src_ip, dst_port)
+    is_ddos, conn_count = track_and_check_ddos(src_ip)
+    is_brute_force, attempt_count = track_and_check_brute_force(src_ip, dst_port)
+
+    # --- Existing per-flow ML feature mapping ---
     mapped = {
         "Destination Port": data.get("dst_port", 0),
-        "Flow Duration": data.get("bidirectional_duration_ms", 0) * 1000,  # ms -> microsec approx
+        "Flow Duration": data.get("bidirectional_duration_ms", 0) * 1000,
         "Total Fwd Packets": data.get("src2dst_packets", 0),
         "Total Length of Fwd Packets": data.get("src2dst_bytes", 0),
         "Fwd Packet Length Max": data.get("src2dst_max_ps", 0),
@@ -125,8 +196,8 @@ async def predict_live(request: Request):
         "Bwd Packet Length Min": data.get("dst2src_min_ps", 0),
         "Bwd Packet Length Mean": data.get("dst2src_mean_ps", 0),
         "Bwd Packet Length Std": data.get("dst2src_stddev_ps", 0),
-        "Flow Bytes/s": data.get("bidirectional_bytes", 0) / max(data.get("bidirectional_duration_ms", 1)/1000, 0.001),
-        "Flow Packets/s": data.get("bidirectional_packets", 0) / max(data.get("bidirectional_duration_ms", 1)/1000, 0.001),
+        "Flow Bytes/s": data.get("bidirectional_bytes", 0) / max(data.get("bidirectional_duration_ms", 1) / 1000, 0.001),
+        "Flow Packets/s": data.get("bidirectional_packets", 0) / max(data.get("bidirectional_duration_ms", 1) / 1000, 0.001),
         "Flow IAT Mean": data.get("bidirectional_mean_piat_ms", 0),
         "Flow IAT Std": data.get("bidirectional_stddev_piat_ms", 0),
         "Flow IAT Max": data.get("bidirectional_max_piat_ms", 0),
@@ -143,8 +214,8 @@ async def predict_live(request: Request):
         "Bwd IAT Min": data.get("dst2src_min_piat_ms", 0),
         "Fwd Header Length": 0,
         "Bwd Header Length": 0,
-        "Fwd Packets/s": data.get("src2dst_packets", 0) / max(data.get("src2dst_duration_ms", 1)/1000, 0.001),
-        "Bwd Packets/s": data.get("dst2src_packets", 0) / max(data.get("dst2src_duration_ms", 1)/1000, 0.001),
+        "Fwd Packets/s": data.get("src2dst_packets", 0) / max(data.get("src2dst_duration_ms", 1) / 1000, 0.001),
+        "Bwd Packets/s": data.get("dst2src_packets", 0) / max(data.get("dst2src_duration_ms", 1) / 1000, 0.001),
         "Min Packet Length": data.get("bidirectional_min_ps", 0),
         "Max Packet Length": data.get("bidirectional_max_ps", 0),
         "Packet Length Mean": data.get("bidirectional_mean_ps", 0),
@@ -171,6 +242,21 @@ async def predict_live(request: Request):
 
     try:
         result = predict(df)
+
+        # Override ML attack_type with rule-based detections (priority order matters)
+        for r in result["results"]:
+            if is_port_scan:
+                r["attack_type"] = "Port Scanning (rule-based)"
+                r["is_anomaly"] = True
+                r["distinct_ports_in_window"] = distinct_ports
+            elif is_ddos:
+                r["attack_type"] = "DDoS (rule-based)"
+                r["is_anomaly"] = True
+                r["connections_in_window"] = conn_count
+            elif is_brute_force:
+                r["attack_type"] = "Brute Force (rule-based)"
+                r["is_anomaly"] = True
+                r["attempts_in_window"] = attempt_count
 
         db = SessionLocal()
         for r in result["results"]:
