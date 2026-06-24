@@ -1,44 +1,68 @@
-"# CICIDS Network Attack Detection
 
-Ce projet fournit un système de détection d'attaques réseau basé sur l'ensemble de données CICIDS2017. Il combine un modèle d'apprentissage automatique (XGBoost) avec une API FastAPI, un tableau de bord Streamlit et des détections en temps réel basées sur des règles pour identifier des comportements suspects tels que les analyses de ports, les DDoS et les attaques par force brute.
 
-## Fonctionnalités
+This project is a machine learning-based network intrusion detection system built around the CICIDS2017 dataset. It combines a trained XGBoost model, a FastAPI backend, a Streamlit dashboard, and real-time detection logic to classify network traffic and highlight suspicious behavior.
 
-- Détection d'anomalies réseau à partir de features de flux réseau
-- Prédictions via une API REST sécurisée
-- Tableau de bord interactif pour visualiser les prédictions historiques
-- Détection en temps réel à partir de données de type NFStream
-- Explications SHAP sur les features les plus influentes
-- Persistance des prédictions dans une base PostgreSQL
-- Détection multi-flux avec Redis pour les motifs d'attaque
+## Project Overview
 
-## Architecture
+The goal of this project is to demonstrate how machine learning can support cybersecurity monitoring by identifying abnormal traffic patterns such as:
 
-- API : FastAPI
-- Tableau de bord : Streamlit
-- Modèle ML : XGBoost + preprocessing + SHAP
-- Base de données : PostgreSQL
-- Cache / détection en temps réel : Redis
-- Conteneurisation : Docker Compose
+- port scanning
+- distributed denial-of-service (DDoS)
+- brute-force attempts
+- normal traffic versus suspicious activity
 
-## Prérequis
+The solution is designed as both a technical demo and a practical internship project showing how ML models can be exposed through an API and visualized in a dashboard.
+
+## Main Features
+
+- Network traffic classification using a trained machine learning model
+- REST API for batch prediction and prediction history
+- Secure authentication for API access
+- Interactive dashboard for monitoring recent detections
+- SHAP-based feature explanations for the most influential features
+- PostgreSQL storage for prediction history
+- Redis-based real-time rule checks for multi-flow attack patterns
+- Docker support for easier deployment
+
+## Tech Stack
+
+- Backend: FastAPI
+- Frontend: Streamlit
+- Machine Learning: XGBoost, scikit-learn, SHAP
+- Database: PostgreSQL
+- Cache / streaming logic: Redis
+- Containerization: Docker Compose
+
+## Project Structure
+
+```text
+api/            # FastAPI backend and authentication
+ashboard/      # Streamlit dashboard
+utils/          # Prediction logic and model inference
+models/        # Trained model artifacts
+notebooks/      # Analysis and experimentation notebooks
+data/           # Dataset files
+scripts/        # Traffic-related helper scripts
+```
+
+## Requirements
 
 - Python 3.11
-- Docker et Docker Compose (optionnel, recommandé)
+- Docker and Docker Compose (recommended)
 - Git
 
 ## Installation
 
-### 1. Cloner le projet
+### 1. Clone the repository
 
 ```bash
-git clone <url-du-repo>
+git clone <your-repository-url>
 cd cicids-project
 ```
 
-### 2. Créer le fichier d'environnement
+### 2. Create environment variables
 
-Créer un fichier `.env` à la racine du projet avec les variables suivantes :
+Create a `.env` file in the project root with values such as:
 
 ```env
 SECRET_KEY=change-me
@@ -48,46 +72,47 @@ DATABASE_URL=postgresql://postgres:your-password@db:5432/cicids_db
 POSTGRES_PASSWORD=your-password
 ```
 
-### 3. Installer les dépendances
-
-Avec Python :
+### 3. Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-## Lancement avec Docker
+## Run the Project
+
+### Option 1: With Docker
 
 ```bash
 docker compose up --build
 ```
 
-Services disponibles :
-- API : http://localhost:8000
-- Documentation Swagger : http://localhost:8000/docs
-- Tableau de bord : http://localhost:8501
-- PostgreSQL : localhost:5432
-- Redis : localhost:6379
+Once running, the services are available at:
 
-## Lancement local
+- API: http://localhost:8000
+- API docs: http://localhost:8000/docs
+- Dashboard: http://localhost:8501
+- PostgreSQL: localhost:5432
+- Redis: localhost:6379
 
-### API
+### Option 2: Locally
+
+Start the API:
 
 ```bash
 uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-### Tableau de bord
+Start the dashboard:
 
 ```bash
 streamlit run dashboard/app.py
 ```
 
-## Utilisation
+## Usage
 
-### Authentification
+### Authentication
 
-Obtenir un jeton d'accès :
+Obtain an access token:
 
 ```bash
 curl -X POST "http://localhost:8000/token" \
@@ -95,7 +120,7 @@ curl -X POST "http://localhost:8000/token" \
   -d "username=your-username&password=your-strong-password"
 ```
 
-### Prédiction sur un lot de flux
+### Make a prediction
 
 ```bash
 curl -X POST "http://localhost:8000/predict" \
@@ -111,48 +136,32 @@ curl -X POST "http://localhost:8000/predict" \
         "Fwd Packet Length Max": 100,
         "Fwd Packet Length Min": 50,
         "Fwd Packet Length Mean": 75,
-        "Fwd Packet Length Std": 10,
-        "Bwd Packet Length Max": 80,
-        "Bwd Packet Length Min": 20,
-        "Bwd Packet Length Mean": 40,
-        "Bwd Packet Length Std": 5
+        "Fwd Packet Length Std": 10
       }
     ]
   }'
 ```
 
-### Historique des prédictions
+### View prediction history
 
 ```bash
 curl -X GET "http://localhost:8000/history" \
   -H "Authorization: Bearer <token>"
 ```
 
-## Structure du projet
+## Notes
 
-```text
-api/                # API FastAPI et authentification
-ashboard/           # Interface Streamlit
-data/               # Jeux de données CICIDS2017
-models/             # Modèles entraînés et artefacts
-notebooks/          # Notebooks d'analyse et de modélisation
-scripts/            # Scripts utilitaires pour le trafic
-utils/              # Logique de prédiction
-```
+- The trained model is expected to be available in the models directory.
+- Prediction history is stored in PostgreSQL.
+- Real-time attack-pattern detection uses Redis and rule-based logic for certain multi-flow scenarios.
 
-## Notes importantes
+## License
 
-- Le modèle attendu est chargé depuis le dossier `models/` via `utils/predictor.py`.
-- Les prédictions sont enregistrées dans la base PostgreSQL.
-- Les routes `/predict-live` et les règles Redis permettent d'identifier certains motifs d'attaque à partir de multiples flux.
+This project was developed during my summer internship. It is intended for educational, demonstration, and internal-use purposes. All rights are reserved unless explicit written authorization is granted for reuse, redistribution, or commercial use.
 
-## Licence
+## Development
 
-Ce projet a été développé dans le cadre de mon stage d'été. Il est fourni à des fins d'apprentissage, de démonstration et d'utilisation interne. Tous droits réservés à l'auteur, sauf autorisation explicite écrite pour une réutilisation, redistribution ou utilisation commerciale.
-
-## Développement
-
-Pour travailler en local sans Docker :
+For local development without Docker:
 
 ```bash
 python -m venv .venv
@@ -161,5 +170,5 @@ source .venv/bin/activate  # Linux/macOS
 pip install -r requirements.txt
 ```
 
-Ensuite, démarrez l'API et le tableau de bord comme décrit ci-dessus.
+Then start the API and the dashboard as described above.
 " 
