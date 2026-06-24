@@ -1,6 +1,6 @@
 
 
-This project is a machine learning-based network intrusion detection system built around the CICIDS2017 dataset. It combines a trained XGBoost model, a FastAPI backend, a Streamlit dashboard, and real-time detection logic to classify network traffic and highlight suspicious behavior.
+This project is a machine learning-based network intrusion detection system built around the CICIDS2017 dataset. It combines a trained XGBoost model, a FastAPI backend, a Streamlit dashboard, and real-time detection logic to classify network traffic and highlight suspicious activity.
 
 ## Project Overview
 
@@ -11,7 +11,7 @@ The goal of this project is to demonstrate how machine learning can support cybe
 - brute-force attempts
 - normal traffic versus suspicious activity
 
-The solution is designed as both a technical demo and a practical internship project showing how ML models can be exposed through an API and visualized in a dashboard.
+The solution is designed as both a technical demo and a practical internship project showing how machine learning models can be exposed through an API and visualized in a dashboard.
 
 ## Main Features
 
